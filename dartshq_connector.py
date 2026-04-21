@@ -66,7 +66,6 @@ def throw_to_segment_coords(dart_data: dict) -> tuple[str, float, float]:
 
 def post_dart(
     session: requests.Session,
-    app_url: str,
     secret: str,
     player_id: str,
     segment_name: str,
@@ -99,7 +98,7 @@ def post_dart(
         return False
 
 
-def fetch_player_id(app_url: str, username: str, secret: str) -> str:
+def fetch_player_id(username: str, secret: str) -> str:
     url = urljoin(CONNECTOR_API_URL.rstrip("/") + "/", "api/player-id")
     r = requests.get(
         url,
@@ -139,31 +138,24 @@ def run_setup_gui(path: Path) -> None:
     username_e = ttk.Entry(main, width=40)
     username_e.grid(row=1, column=0, sticky="ew", pady=(0, 8))
 
-    ttk.Label(main, text="App URL").grid(row=2, column=0, sticky="w", pady=(0, 4))
-    app_url_e = ttk.Entry(main, width=40)
-    app_url_e.insert(0, "https://app.dartshq.com")
-    app_url_e.grid(row=3, column=0, sticky="ew", pady=(0, 8))
-
-    ttk.Label(main, text="Connector Secret Key").grid(row=4, column=0, sticky="w", pady=(0, 4))
+    ttk.Label(main, text="Connector Secret Key").grid(row=2, column=0, sticky="w", pady=(0, 4))
     secret_e = ttk.Entry(main, width=40, show="*")
-    secret_e.grid(row=5, column=0, sticky="ew", pady=(0, 12))
+    secret_e.grid(row=3, column=0, sticky="ew", pady=(0, 12))
 
     status_var = tk.StringVar(value="")
 
     def on_save():
         username = username_e.get().strip()
-        app_url = app_url_e.get().strip()
         secret = secret_e.get()
-        if not username or not app_url or not secret:
+        if not username or not secret:
             messagebox.showerror("DartsHQ Connector Setup", "Please fill in all fields.")
             return
         status_var.set("Connecting…")
         root.update_idletasks()
         try:
-            player_id = fetch_player_id(app_url, username, secret)
+            player_id = fetch_player_id(username, secret)
             cfg = {
                 "player_id": player_id,
-                "app_url": app_url.rstrip("/"),
                 "secret": secret,
             }
             path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
@@ -178,8 +170,8 @@ def run_setup_gui(path: Path) -> None:
             status_var.set("")
             messagebox.showerror("DartsHQ Connector Setup", f"Could not save config:\n{e}")
 
-    ttk.Button(main, text="Save & Connect", command=on_save).grid(row=6, column=0, sticky="ew")
-    ttk.Label(main, textvariable=status_var).grid(row=7, column=0, pady=(8, 0))
+    ttk.Button(main, text="Save & Connect", command=on_save).grid(row=4, column=0, sticky="ew")
+    ttk.Label(main, textvariable=status_var).grid(row=5, column=0, pady=(8, 0))
 
     def on_close():
         root.destroy()
@@ -196,7 +188,7 @@ def load_config(path: Path) -> dict:
     cfg = json.loads(raw)
     if not isinstance(cfg, dict):
         raise ValueError("config.json must be a JSON object")
-    for key in ("player_id", "app_url", "secret"):
+    for key in ("player_id", "secret"):
         if key not in cfg or not str(cfg[key]).strip():
             raise ValueError(f"config.json missing or empty: {key}")
     return cfg
@@ -204,7 +196,6 @@ def load_config(path: Path) -> dict:
 
 def run_poll_loop(cfg: dict) -> None:
     player_id = str(cfg["player_id"])
-    app_url = str(cfg["app_url"]).rstrip("/")
     secret = str(cfg["secret"])
 
     session = requests.Session()
@@ -234,7 +225,6 @@ def run_poll_loop(cfg: dict) -> None:
             if n == 0 and last_count > 0:
                 if post_dart(
                     session,
-                    app_url,
                     secret,
                     player_id,
                     "",
@@ -260,7 +250,6 @@ def run_poll_loop(cfg: dict) -> None:
                     seg, x, y = throw_to_segment_coords(dart_data)
                     if post_dart(
                         session,
-                        app_url,
                         secret,
                         player_id,
                         seg,
