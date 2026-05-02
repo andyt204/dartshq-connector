@@ -6,11 +6,10 @@ Dependencies: requests, tkinter (stdlib).
 from __future__ import annotations
 
 import json
-import re
 import sys
 import time
 from pathlib import Path
-from urllib.parse import quote, urljoin
+from urllib.parse import urljoin
 
 import requests
 
@@ -67,7 +66,6 @@ def throw_to_segment_coords(dart_data: dict) -> tuple[str, float, float]:
 def post_dart(
     session: requests.Session,
     secret: str,
-    player_id: str,
     segment_name: str,
     x_coord: float,
     y_coord: float,
@@ -76,7 +74,6 @@ def post_dart(
 ) -> bool:
     url = urljoin(CONNECTOR_API_URL.rstrip("/") + "/", "api/dart")
     payload = {
-        "player_id": player_id,
         "segment_name": segment_name,
         "x_coord": x_coord,
         "y_coord": y_coord,
@@ -98,31 +95,6 @@ def post_dart(
         return False
 
 
-def fetch_player_id(username: str, secret: str) -> str:
-    url = urljoin(CONNECTOR_API_URL.rstrip("/") + "/", "api/player-id")
-    r = requests.get(
-        url,
-        params={"username": username, "secret": secret},
-        timeout=15.0,
-    )
-    if r.status_code == 401:
-        raise ValueError(
-            "Invalid secret key — check your Connector Secret Key in Settings."
-        )
-    if r.status_code == 404:
-        raise ValueError("Username not found — check your DartsHQ username.")
-    if r.status_code != 200:
-        raise ValueError(f"Unexpected error (HTTP {r.status_code})")
-    try:
-        data = r.json()
-    except Exception:
-        raise ValueError("Response did not contain player_id")
-    pid = data.get("player_id")
-    if pid is None:
-        raise ValueError("Response did not contain player_id")
-    return str(pid)
-
-
 def run_setup_gui(path: Path) -> None:
     import tkinter as tk
     from tkinter import messagebox, ttk
@@ -134,44 +106,28 @@ def run_setup_gui(path: Path) -> None:
     main = ttk.Frame(root, padding=12)
     main.grid(row=0, column=0, sticky="nsew")
 
-    ttk.Label(main, text="DartsHQ Username").grid(row=0, column=0, sticky="w", pady=(0, 4))
-    username_e = ttk.Entry(main, width=40)
-    username_e.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-
-    ttk.Label(main, text="Connector Secret Key").grid(row=2, column=0, sticky="w", pady=(0, 4))
+    ttk.Label(main, text="Connector Secret Key").grid(row=0, column=0, sticky="w", pady=(0, 4))
     secret_e = ttk.Entry(main, width=40, show="*")
-    secret_e.grid(row=3, column=0, sticky="ew", pady=(0, 12))
+    secret_e.grid(row=1, column=0, sticky="ew", pady=(0, 12))
 
     status_var = tk.StringVar(value="")
 
     def on_save():
-        username = username_e.get().strip()
         secret = secret_e.get()
-        if not username or not secret:
-            messagebox.showerror("DartsHQ Connector Setup", "Please fill in all fields.")
+        if not secret or not str(secret).strip():
+            messagebox.showerror("DartsHQ Connector Setup", "Please enter your Connector Secret Key.")
             return
-        status_var.set("Connecting…")
-        root.update_idletasks()
+        secret = str(secret).strip()
         try:
-            player_id = fetch_player_id(username, secret)
-            cfg = {
-                "player_id": player_id,
-                "secret": secret,
-            }
+            cfg = {"secret": secret}
             path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
             root.destroy()
-        except requests.RequestException as e:
-            status_var.set("")
-            messagebox.showerror("DartsHQ Connector Setup", f"Network error:\n{e}")
-        except (ValueError, json.JSONDecodeError) as e:
-            status_var.set("")
-            messagebox.showerror("DartsHQ Connector Setup", str(e))
         except OSError as e:
             status_var.set("")
             messagebox.showerror("DartsHQ Connector Setup", f"Could not save config:\n{e}")
 
-    ttk.Button(main, text="Save & Connect", command=on_save).grid(row=4, column=0, sticky="ew")
-    ttk.Label(main, textvariable=status_var).grid(row=5, column=0, pady=(8, 0))
+    ttk.Button(main, text="Save & Connect", command=on_save).grid(row=2, column=0, sticky="ew")
+    ttk.Label(main, textvariable=status_var).grid(row=3, column=0, pady=(8, 0))
 
     def on_close():
         root.destroy()
@@ -188,14 +144,12 @@ def load_config(path: Path) -> dict:
     cfg = json.loads(raw)
     if not isinstance(cfg, dict):
         raise ValueError("config.json must be a JSON object")
-    for key in ("player_id", "secret"):
-        if key not in cfg or not str(cfg[key]).strip():
-            raise ValueError(f"config.json missing or empty: {key}")
+    if "secret" not in cfg or not str(cfg["secret"]).strip():
+        raise ValueError("config.json missing or empty: secret")
     return cfg
 
 
 def run_poll_loop(cfg: dict) -> None:
-    player_id = str(cfg["player_id"])
     secret = str(cfg["secret"])
 
     session = requests.Session()
@@ -226,7 +180,6 @@ def run_poll_loop(cfg: dict) -> None:
                 if post_dart(
                     session,
                     secret,
-                    player_id,
                     "",
                     0.0,
                     0.0,
@@ -251,7 +204,6 @@ def run_poll_loop(cfg: dict) -> None:
                     if post_dart(
                         session,
                         secret,
-                        player_id,
                         seg,
                         x,
                         y,
